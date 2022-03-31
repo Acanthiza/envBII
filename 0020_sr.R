@@ -59,7 +59,10 @@
                  ) %>%
         step_corr(all_predictors()
                   , threshold = 0.95
-                  )
+                  ) %>%
+        step_sqrt(all_outcomes()
+                 , skip = TRUE
+                 )
 
       # Resampling
       res$folds <- vfold_cv(res$data_train, v = folds, repeats = reps)
@@ -124,12 +127,12 @@
         select_best(metric = "rmse")
 
       # Final model
-      res$final_mod <- res$mod_wf %>%
+      res$final_wf <- res$mod_wf %>%
         extract_workflow(res$wf_best) %>%
         finalize_workflow(res$mod_best)
 
       # Fit final model to whole data set
-      res$fit <- res$final_mod %>%
+      res$fit <- res$final_wf %>%
         fit(data = res$original_data)
 
       # Final results
@@ -139,13 +142,13 @@
 
       # Model plot
       res$mod_plot <- res$final_fit %>%
-        ggplot(aes(sr, .pred)) +
+        ggplot(aes(sr, .pred^2)) +
         geom_point() +
         geom_abline(color = "gray50", lty = 2)
 
       # Residual plot
       res$resid_plot <- res$final_fit %>%
-        dplyr::mutate(resid = sr - .pred) %>%
+        dplyr::mutate(resid = sr - .pred^2) %>%
         ggplot(aes(sr, resid)) +
         geom_point() +
         geom_hline(aes(yintercept = 0)
@@ -160,7 +163,9 @@
 
       return(res)
 
-      }
+    }
+
+    # fit <- make_and_fit_sr_model(flor_env, context = names(sr_data))
 
     fit <- make_and_fit_sr_model(flor_env
                                  , folds = 5
@@ -177,7 +182,7 @@
 
   #------predict--------
 
-  years <- c(2000, 2020)
+  years <- c(1990, 2000, 2020)
 
   purrr::walk(years
               , function(x) {
@@ -209,6 +214,10 @@
     stats::setNames(paste0("sr_",years))
 
 
+  sr_tifs <- purrr::map(sr_tifs
+                        , function(x) x^2
+                        )
+
   #-------sr bii---------
 
   out_file <- fs::path("sr_bii.tif")
@@ -219,7 +228,12 @@
 
       v <- current / ref
 
-      #v <- ifelse(v <= 1 | is.na(v), v, 1)
+      # z <- ref / current
+      #
+      # v <- ifelse(v <= 1 | is.na(v)
+      #             , -1 * v
+      #             , z
+      #             )
 
       return(v)
 
@@ -251,6 +265,7 @@
                    ) +
       tmap::tm_raster(breaks = sr_cuts
                       , palette = "viridis"
+                      , midpoint = 1
                       )
 
   }
