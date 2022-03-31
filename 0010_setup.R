@@ -1,5 +1,4 @@
 
-  potential <- "D:/env/projects/envEco/out/KI_5_potential"
   current <- "D:/env/projects/envEco/out/KI_50_current"
 
   #-------overall settings-------
@@ -42,7 +41,7 @@
 
   #------import-------
 
-  stuff <- fs::dir_info(c(current, potential)
+  stuff <- fs::dir_info(current
                      , recurse = TRUE
                      ) %>%
     dplyr::mutate(out_dir = stringr::str_extract(path, "\\w{2,5}_\\d{1,3}_\\w{6,20}")
@@ -83,65 +82,31 @@
   #   dplyr::pull(path) %>%
   #   stars::read_stars()
 
-  env_pca <- stuff %>%
-    dplyr::filter(grepl("env_pca", obj)) %>%
-    dplyr::select(cur_pot, new_obj, path) %>%
-    dplyr::mutate(obj = map(path, rio::import)) %>%
-    dplyr::pull(obj, new_obj)
-
   taxa_taxonomy <- stuff %>%
-    dplyr::filter(grepl("taxa_taxonomy\\.rds", path)
-                  , cur_pot == "potential"
-                  ) %>%
+    dplyr::filter(grepl("taxa_taxonomy\\.rds", path)) %>%
     dplyr::select(cur_pot, new_obj, path) %>%
     dplyr::mutate(obj = map(path, rio::import)) %>%
-    dplyr::pull(obj, new_obj)
+    dplyr::select(obj) %>%
+    tidyr::unnest(cols = c(obj))
 
   flor_tidy <- stuff %>%
     dplyr::filter(grepl("filt_summary\\.rds", path)) %>%
     dplyr::mutate(obj = map(path, rio::import)) %>%
     tidyr::unnest(cols = c(obj)) %>%
-    dplyr::filter(name == "flor_tidy"
-                  , cur_pot == "potential"
-                  ) %>%
-    dplyr::mutate(new_obj = paste0(name, "_", cur_pot)) %>%
-    dplyr::pull(obj, new_obj) %>%
-    purrr::map(function(x) x %>%
-                 dplyr::inner_join(taxa_taxonomy$taxa_taxonomy_potential %>%
-                                      dplyr::select(taxa, ind) %>%
-                                      dplyr::filter(ind != "N")
-                                    )
-               )
+    dplyr::filter(name == "flor_tidy") %>%
+    dplyr::select(obj) %>%
+    tidyr::unnest(cols = c(obj)) %>%
+    dplyr::inner_join(taxa_taxonomy %>%
+                        dplyr::select(taxa, ind) %>%
+                        dplyr::filter(ind != "N")
+                      )
 
-  contexts <- flor_tidy$flor_tidy_potential %>%
+  sr_data <- flor_tidy %>%
     dplyr::count(across(any_of(visit_cols)), name = "sr")
 
-  flor_env <- stuff %>%
-    dplyr::filter(grepl("flor_env", obj)) %>%
-    dplyr::select(cur_pot, new_obj, path) %>%
-    dplyr::mutate(obj = map(path, rio::import)) %>%
-    dplyr::pull(obj, new_obj) %>%
-    purrr::map(function(x) x %>%
-                 dplyr::inner_join(contexts %>%
-                                     dplyr::select(-sr)
-                                   )
-               )
 
-  lc_tidy <-  stuff %>%
-    dplyr::filter(grepl("filt_summary_lc\\.rds", path)) %>%
-    dplyr::mutate(obj = map(path, rio::import)) %>%
-    tidyr::unnest(cols = c(obj)) %>%
-    dplyr::filter(name == "lc_tidy"
-                  , cur_pot == "current"
-                  ) %>%
-    dplyr::mutate(new_obj = paste0(name, "_", cur_pot)) %>%
-    dplyr::pull(obj, new_obj)
-
-
-  #--------current env-------
-
-  # Static are used for predict (and train, if they are only static)
-  rasters_aligned <- "../../data/raster/aligned/ki_50"
+  #-------Aggregate and stack env rasteres--------
+  rasters_aligned <- "../../data/raster/aligned/KI_50"
 
   use_ras_type <- unique(envEcosystems::env$process[envEcosystems::env$provider != "KIDTM1m"])
 
@@ -186,7 +151,7 @@
   purrr::walk2(statics$r[!statics$agg_exists]
                , statics$agg_path[!statics$agg_exists]
                , ~terra::aggregate(.x
-                                   , fact = 30
+                                   , fact = 34
                                    , fun = "mean"
                                    , na.rm = TRUE
                                    , filename = .y
@@ -194,72 +159,7 @@
                                    )
                )
 
-  env_stack <- list()
-
-  env_stack$current <- statics %>%
-    dplyr::pull(agg_path) %>%
-    terra::rast() %>%
-    stats::setNames(statics$name)
-
-
-  #--------potential env-------
-
-  # Static are used for predict (and train, if they are only static)
-  rasters_aligned <- "../../data/raster/aligned/ki_5"
-
-  # Potential
-  use_ras_type <- unique(envEcosystems::env$process[envEcosystems::env$group != "satellite"])
-
-  no_ras_type <- c("^_"
-                   , "isocluster"
-                   , "twi"
-                   , "test"
-                   , "90-"
-                   , "00-"
-                   , "median"
-                   , "winter"
-                   , "spring"
-                   #, "autumn"
-                   , "sd"
-                   #, "min"
-                   #, "max"
-                   #, "03\\d{4}05" # autumn
-                   , "06\\d{4}08" # winter
-                   , "09\\d{4}11" # spring
-                   )
-
-  statics <- envRaster::parse_env_tif(rasters_aligned) %>%
-    dplyr::filter(process %in% use_ras_type) %>%
-    dplyr::filter(!grepl(paste0(no_ras_type,collapse = "|")
-                         , path
-                         )
-                  ) %>%
-    envFunc::filter_test_func() %>%
-    dplyr::mutate(name = gsub("_aligned\\.tif","",basename(path))
-                  , agg = paste0(name, "_aggregated.tif")
-                  , agg_path = fs::path(gsub("aligned", "aggregated", dirname(path))
-                                        , agg
-                                        )
-                  , r = map(path, terra::rast)
-                  , agg_exists = purrr::map_lgl(agg_path, file.exists)
-                  )
-
-  agg_dir <- dirname(statics$agg_path[[1]])
-
-  if(!file.exists(agg_dir)) fs::dir_create(agg_dir)
-
-  purrr::walk2(statics$r[!statics$agg_exists]
-               , statics$agg_path[!statics$agg_exists]
-               , ~terra::aggregate(.x
-                                   , fact = 30
-                                   , fun = "mean"
-                                   , na.rm = TRUE
-                                   , filename = .y
-                                   , overwrite = TRUE
-                                   )
-               )
-
-  env_stack$potential <- statics %>%
+  env_stack <- statics %>%
     dplyr::pull(agg_path) %>%
     terra::rast() %>%
     stats::setNames(statics$name)
