@@ -4,7 +4,7 @@
   if(!exists("run_from")) run_from <- 0
   if(!exists("run_to")) run_to <- 100
 
-  commit_notes <- "Square-root sr as outcome"
+  commit_notes <- "Switching from satellite to landcover"
 
   dir() %>%
     grep("^\\d{4}_.*\\.R$",.,value=TRUE) %>%

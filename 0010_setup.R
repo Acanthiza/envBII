@@ -1,22 +1,23 @@
 
   current <- "D:/env/projects/envEco/out/KI_50_current"
 
+  #-------packages-------
+
+  library(magrittr)
+  library(terra)
+  library(envRaster)
+  library(caret)
+  library(dplyr)
+  library(purrr)
+  library(tmap)
+
+  library(tidymodels)
+  library(finetune)
+
+
   #-------overall settings-------
 
   visit_cols <- c("lat", "long", "year")
-
-  # How many pca axes to use?
-  pca_axes <- 4
-
-  # What style to use to break up pca axes?
-  find_interval_style <- "quantile"
-
-  # How many cuts along pc 1?
-  pca_cuts <- 20
-  # cuts on pc 2 will be 20/2
-  # cuts on pc3 will be 20/3
-  # etc.
-
 
   tmap::tmap_mode("view")
 
@@ -26,18 +27,26 @@
                      , limits = c(facets.plot = 100)
                      )
 
-  #-------packages-------
 
-  library(magrittr)
-  library(terra)
-  library(envRaster)
-  library(caret)
-  library(dplyr)
-  library(purrr)
+  #-------lookups-----------
+  # epochs
+  luep <- rio::import("luEp.csv") %>%
+    dplyr::select(!contains("short")) %>%
+    dplyr::rename(name = landcover) %>%
+    dplyr::mutate(name = gsub("-", "_", name))
 
-  library(tidymodels)
-  library(finetune)
+  # epoch : year
+  luyear <- envFunc::make_epochs(epoch_overlap = FALSE) %>%
+    tidyr::unnest(cols = c(year)) %>%
+    dplyr::left_join(luep %>%
+                       dplyr::rename(end = epochEnd) %>%
+                       dplyr::select(-epoch)
+                     )
 
+
+  # landcover
+  lulandcover <- rio::import("luLandcover.csv") %>%
+    tibble::as_tibble()
 
   #------import-------
 
@@ -105,63 +114,76 @@
     dplyr::count(across(any_of(visit_cols)), name = "sr")
 
 
-  #-------Aggregate and stack env rasteres--------
-  rasters_aligned <- "../../data/raster/aligned/KI_50"
+  #-------Prepare landcover--------
+  # based on code here: https://stackoverflow.com/questions/69546515/how-to-aggregate-categorical-spatraster
 
-  use_ras_type <- unique(envEcosystems::env$process[envEcosystems::env$provider != "KIDTM1m"])
+  raster_folder <- "../../data/raster/landcover"
 
-  no_ras_type <- c("^_"
-                   , "isocluster"
-                   , "twi"
-                   , "test"
-                   , "90-"
-                   , "00-"
-                   , "median"
-                   , "winter"
-                   , "spring"
-                   #, "autumn"
-                   , "sd"
-                   #, "min"
-                   #, "max"
-                   #, "03\\d{4}05" # autumn
-                   , "06\\d{4}08" # winter
-                   , "09\\d{4}11" # spring
-                   )
-
-  statics <- envRaster::parse_env_tif(rasters_aligned) %>%
-    dplyr::filter(process %in% use_ras_type) %>%
-    dplyr::filter(!grepl(paste0(no_ras_type,collapse = "|")
-                         , path
-                         )
+  epochs <- fs::dir_info(raster_folder
+                          , recurse = TRUE
+                          ) %>%
+    dplyr::select(path) %>%
+    dplyr::filter(grepl("tif$", path)
+                  , grepl("raw", path)
                   ) %>%
     envFunc::filter_test_func() %>%
-    dplyr::mutate(name = gsub("_aligned\\.tif","",basename(path))
-                  , agg = paste0(name, "_aggregated.tif")
-                  , agg_path = fs::path(gsub("aligned", "aggregated", dirname(path))
-                                        , agg
-                                        )
+    dplyr::mutate(name = gsub("1\\.tif","",basename(path))) %>%
+    dplyr::left_join(luep) %>%
+    dplyr::mutate(seg_path = fs::path(gsub("raw", "segregated", dirname(path))
+                                      , basename(path)
+                                      )
+                  , r = map(path, terra::rast)
+                  , seg_exists = purrr::map_lgl(seg_path, file.exists)
+                  , agg_path = fs::path(gsub("raw", "aggregated", dirname(path))
+                                      , basename(path)
+                                      )
                   , r = map(path, terra::rast)
                   , agg_exists = purrr::map_lgl(agg_path, file.exists)
                   )
 
-  agg_dir <- dirname(statics$agg_path[[1]])
+  #------segregation------
+
+  seg_dir <- dirname(epochs$seg_path[[1]])
+
+  if(!file.exists(seg_dir)) fs::dir_create(seg_dir)
+
+  purrr::walk2(epochs$r[!epochs$seg_exists]
+               , epochs$seg_path[!epochs$seg_exists]
+               , ~terra::segregate(.x
+                                   , filename = .y
+                                   , overwrite = TRUE
+                                   )
+               )
+
+
+  #------aggregation-------
+
+  agg_dir <- dirname(epochs$agg_path[[1]])
 
   if(!file.exists(agg_dir)) fs::dir_create(agg_dir)
 
-  purrr::walk2(statics$r[!statics$agg_exists]
-               , statics$agg_path[!statics$agg_exists]
+  epochs <- epochs %>%
+    dplyr::mutate(r = purrr::map(seg_path, terra::rast))
+
+  purrr::walk2(epochs$r[!epochs$agg_exists]
+               , epochs$agg_path[!epochs$agg_exists]
                , ~terra::aggregate(.x
                                    , fact = 34
-                                   , fun = "mean"
+                                   , fun = "sum"
                                    , na.rm = TRUE
                                    , filename = .y
                                    , overwrite = TRUE
                                    )
                )
 
-  env_stack <- statics %>%
-    dplyr::pull(agg_path) %>%
-    terra::rast() %>%
-    stats::setNames(statics$name)
+  #------env stack-------
+  env_stack <- epochs %>%
+    dplyr::mutate(s = purrr::map(agg_path, terra::rast)
+                  , s = purrr::map(s, function(x) x %>% stats::setNames(lulandcover$LC_NAME))
+                  ) %>%
+    dplyr::pull(s) %>%
+    stats::setNames(epochs$name)
+
+
 
 

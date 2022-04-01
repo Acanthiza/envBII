@@ -1,21 +1,23 @@
 
   #-------env data------
 
-  flor_env_static_long <- envRaster::get_env_data(env_stack
-                                                  , df = sr_data
-                                                  )
-
-  flor_env_static <- flor_env_static_long %>%
-    dplyr::mutate(name = gsub("_aggregated", "", name)) %>%
-    dplyr::filter(!is.na(value)) %>%
-    dplyr::select(any_of(visit_cols), name, value) %>%
-    tidyr::pivot_wider(names_from = name
-                       , values_from = value
-                       )
+  flor_env_dynamic <- purrr::map(env_stack
+                                     , terra::extract
+                                     , y = sr_data %>%
+                                       sf::st_as_sf(coords = c("long", "lat")
+                                                    , crs = 4283
+                                                    ) %>%
+                                       terra::vect()
+                                     ) %>%
+    dplyr::bind_rows(.id = "name") %>%
+    tibble::as_tibble()
 
   flor_env <- sr_data %>%
-    dplyr::left_join(flor_env_static) %>%
-    dplyr::select(-lat, -long) %>%
+    dplyr::mutate(ID = row_number()) %>%
+    dplyr::left_join(luyear) %>%
+    dplyr::select(ID, lat, long, sr, name) %>%
+    dplyr::inner_join(flor_env_dynamic) %>%
+    dplyr::select(-ID, -lat, -long, -name) %>%
     na.omit()
 
   out_file <- "fit.rds"
@@ -47,9 +49,6 @@
       res$rec <- recipe(env_df) %>%
         update_role(any_of(context)
                     , new_role = "id"
-                    ) %>%
-        update_role(year
-                    , new_role = "predictor"
                     ) %>%
         update_role(sr
                     , new_role = "outcome"
@@ -178,23 +177,20 @@
 
   } else fit <- rio::import(out_file)
 
-  mods <- map(fit, "fit")
 
   #------predict--------
 
-  years <- c(1990, 2000, 2020)
+  purrr::walk2(env_stack
+               , names(env_stack)
+              , function(x, y) {
 
-  purrr::walk(years
-              , function(x) {
-
-                 out_file <- fs::path(paste0("sr_", x, ".tif"))
+                 out_file <- fs::path(paste0(y, ".tif"))
 
                  if(!file.exists(out_file)) {
 
-                   terra::predict(env_stack
+                   terra::predict(x
                                   , fit$fit
                                   , na.rm = TRUE
-                                  , const = data.frame(year = x)
                                   , type = "raw"
                                   , filename = out_file
                                   , overwrite = TRUE
@@ -208,10 +204,10 @@
                )
 
 
-  sr_tifs <- purrr::map(years
-                        , ~terra::rast(fs::path(paste0("sr_", ., ".tif")))
+  sr_tifs <- purrr::map(names(env_stack)
+                        , ~terra::rast(fs::path(paste0(., ".tif")))
                         ) %>%
-    stats::setNames(paste0("sr_",years))
+    stats::setNames(paste0(names(env_stack)))
 
 
   sr_tifs <- purrr::map(sr_tifs
