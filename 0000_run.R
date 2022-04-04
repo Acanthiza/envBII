@@ -4,7 +4,7 @@
   if(!exists("run_from")) run_from <- 0
   if(!exists("run_to")) run_to <- 100
 
-  commit_notes <- "Aggregation landscape at 2000 m"
+  commit_notes <- "Aggregation landscape at 1000 m"
 
   dir() %>%
     grep("^\\d{4}_.*\\.R$",.,value=TRUE) %>%
