@@ -5,10 +5,9 @@
 
   if(nrow(gert::git_status() > 1)) {
 
-    envFunc::git_commit_env(paste0("Successful run: "
+    envFunc::git_commit_env(paste0(commit_notes
+                                   , ". Successful run: "
                                    , now
-                                   , "."
-                                   , commit_notes
                                    )
                             )
 

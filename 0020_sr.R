@@ -1,26 +1,63 @@
 
   #-------env data------
 
-  flor_env_dynamic <- purrr::map(env_stack
-                                     , terra::extract
-                                     , y = sr_data %>%
-                                       sf::st_as_sf(coords = c("long", "lat")
-                                                    , crs = 4283
-                                                    ) %>%
-                                       terra::vect()
-                                     ) %>%
+  rect_around_point <- function(x,xsize,ysize){
+    bbox <- sf::st_bbox(x)
+    bbox <- bbox +c(xsize/2,ysize/2,-xsize/2,-ysize/2)
+    return(sf::st_as_sfc(bbox))
+  }
+
+
+  sr_rectangles <- sr_data %>%
+    sf::st_as_sf(coords = c("long", "lat")
+                 , crs = 4283
+                 , remove = FALSE
+                 ) %>%
+    sf::st_transform(crs = 3577) %>%
+    dplyr::mutate(ID = row_number()
+                  , sf = purrr::map(geometry
+                           , rect_around_point
+                           , xsize = agg_cells*30/2
+                           , ysize = agg_cells*30/2
+                           )
+                  ) %>%
+    tidyr::unnest(cols = sf) %>%
+    sf::st_set_geometry(NULL) %>%
+    sf::st_as_sf(crs = 3577) %>%
+    sf::st_transform(crs = 4283) %>%
+    terra::vect()
+
+  flor_env_dynamic <- purrr::map(epochs$r
+                                , terra::extract
+                                , y = sr_rectangles
+                                , na.rm = TRUE
+                                ) %>%
+    stats::setNames(epochs$name) %>%
     dplyr::bind_rows(.id = "name") %>%
-    tibble::as_tibble()
+    tibble::as_tibble() %>%
+    dplyr::filter(!is.na(LC_NAME)) %>%
+    dplyr::left_join(sr_rectangles %>%
+                       sf::st_as_sf() %>%
+                       sf::st_set_geometry(NULL)
+                     ) %>%
+    dplyr::add_count(across(any_of(names(sr_data))), name, name = "cells") %>%
+    dplyr::count(across(any_of(names(sr_data))), name, LC_NAME, cells, name = "count") %>%
+    dplyr::mutate(p = count / cells) %>%
+    tidyr::pivot_wider(id_cols = any_of(c("name", names(sr_data)))
+                       , names_from = "LC_NAME"
+                       , values_from = p
+                       , values_fill = 0
+                       )
 
   flor_env <- sr_data %>%
     dplyr::mutate(ID = row_number()) %>%
     dplyr::left_join(luyear) %>%
     dplyr::select(ID, lat, long, sr, name) %>%
     dplyr::inner_join(flor_env_dynamic) %>%
-    dplyr::select(-ID, -lat, -long, -name) %>%
+    dplyr::select(-ID, -name, -any_of(names(sr_data)), sr) %>%
     na.omit()
 
-  out_file <- "fit.rds"
+  out_file <- fs::path(out_dir, "fit.rds")
 
   if(!file.exists(out_file)) {
 
@@ -117,7 +154,7 @@
 
       res$wf_best <- res$race_results %>%
         rank_results() %>%
-        filter(.metric == "rsq") %>%
+        filter(.metric == "rmse") %>%
         dplyr::slice(1) %>%
         dplyr::pull(wflow_id)
 
@@ -184,7 +221,7 @@
                , names(env_stack)
               , function(x, y) {
 
-                 out_file <- fs::path(paste0(y, ".tif"))
+                 out_file <- fs::path(out_dir, paste0(y, ".tif"))
 
                  if(!file.exists(out_file)) {
 
@@ -205,7 +242,7 @@
 
 
   sr_tifs <- purrr::map(names(env_stack)
-                        , ~terra::rast(fs::path(paste0(., ".tif")))
+                        , ~terra::rast(fs::path(out_dir, paste0(., ".tif")))
                         ) %>%
     stats::setNames(paste0(names(env_stack)))
 
@@ -216,7 +253,7 @@
 
   #-------sr bii---------
 
-  out_file <- fs::path("sr_bii.tif")
+  out_file <- fs::path(out_dir, "sr_bii.tif")
 
   if(!file.exists(out_file)) {
 

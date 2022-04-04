@@ -1,6 +1,17 @@
 
   current <- "D:/env/projects/envEco/out/KI_50_current"
 
+  aggregation_landscape <- 500 # m
+
+  agg_cells <- floor(sqrt((aggregation_landscape * aggregation_landscape) / (30 * 30)))
+
+  out_dir <- fs::path("out"
+                      , basename(current)
+                      , aggregation_landscape
+                      )
+
+  if(!file.exists(out_dir)) fs::dir_create(out_dir)
+
   #-------packages-------
 
   library(magrittr)
@@ -26,6 +37,7 @@
                                   )
                      , limits = c(facets.plot = 100)
                      )
+
 
 
   #-------lookups-----------
@@ -135,8 +147,9 @@
                   , r = map(path, terra::rast)
                   , seg_exists = purrr::map_lgl(seg_path, file.exists)
                   , agg_path = fs::path(gsub("raw", "aggregated", dirname(path))
-                                      , basename(path)
-                                      )
+                                        , aggregation_landscape
+                                        , basename(path)
+                                        )
                   , r = map(path, terra::rast)
                   , agg_exists = purrr::map_lgl(agg_path, file.exists)
                   )
@@ -163,20 +176,31 @@
   if(!file.exists(agg_dir)) fs::dir_create(agg_dir)
 
   epochs <- epochs %>%
-    dplyr::mutate(r = purrr::map(seg_path, terra::rast))
+    dplyr::mutate(seg = purrr::map(seg_path, terra::rast))
 
-  purrr::walk2(epochs$r[!epochs$agg_exists]
+  agg_func <- function(x) {
+
+    sum_x <- sum(x, na.rm = TRUE)
+    length_x <- sum(!is.na(x))
+
+    p <- sum_x / length_x
+
+    return(p)
+
+  }
+
+  purrr::walk2(epochs$seg[!epochs$agg_exists]
                , epochs$agg_path[!epochs$agg_exists]
                , ~terra::aggregate(.x
-                                   , fact = 34
-                                   , fun = "sum"
-                                   , na.rm = TRUE
+                                   , fact = agg_cells
+                                   , fun = agg_func
                                    , filename = .y
                                    , overwrite = TRUE
                                    )
                )
 
   #------env stack-------
+
   env_stack <- epochs %>%
     dplyr::mutate(s = purrr::map(agg_path, terra::rast)
                   , s = purrr::map(s, function(x) x %>% stats::setNames(lulandcover$LC_NAME))
