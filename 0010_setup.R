@@ -1,7 +1,7 @@
 
   current <- "D:/env/projects/envEco/out/KI_50_current"
 
-  aggregation_landscape <- 500 # m
+  aggregation_landscape <- 2000 # m
 
   agg_cells <- floor(sqrt((aggregation_landscape * aggregation_landscape) / (30 * 30)))
 

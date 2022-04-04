@@ -27,11 +27,10 @@
                   , "short.docx"
                   )
 
-  files_to_copy <- tibble::tibble(path = fs::dir_ls(regexp = paste0(filesRegex,collapse = "|"))) %>%
+  files_to_copy <- tibble::tibble(path = fs::dir_ls(out_dir)) %>%
     dplyr::filter(!grepl("~",path))
 
-
-  fs::dir_create(base_network_path)
+  fs::dir_create(fs::path(base_network_path, out_dir))
 
   purrr::walk(files_to_copy$path
               , ~file.copy(from = .

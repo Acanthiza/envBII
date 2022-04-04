@@ -251,6 +251,8 @@
                         , function(x) x^2
                         )
 
+  sr_by_lc <-
+
   #-------sr bii---------
 
   out_file <- fs::path(out_dir, "sr_bii.tif")
