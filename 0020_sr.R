@@ -27,7 +27,7 @@
     sf::st_transform(crs = 4283) %>%
     terra::vect()
 
-  flor_env_dynamic <- purrr::map(epochs$r
+  sr_data_epochs <- purrr::map(epochs$r
                                 , terra::extract
                                 , y = sr_rectangles
                                 , na.rm = TRUE
@@ -49,12 +49,21 @@
                        , values_fill = 0
                        )
 
-  flor_env <- sr_data %>%
-    dplyr::mutate(ID = row_number()) %>%
-    dplyr::left_join(luyear) %>%
-    dplyr::select(ID, lat, long, sr, name) %>%
-    dplyr::inner_join(flor_env_dynamic) %>%
-    dplyr::select(-ID, -name, -any_of(names(sr_data)), sr) %>%
+  sr_data_statics <- terra::extract(static_stack
+                                    , y = sr_rectangles
+                                    , fun = mean
+                                    , na.rm = TRUE
+                                    ) %>%
+    tibble::as_tibble() %>%
+    dplyr::left_join(sr_rectangles %>%
+                       sf::st_as_sf() %>%
+                       sf::st_set_geometry(NULL)
+                     ) %>%
+    dplyr::select(any_of(names(sr_data)), any_of(names(static_stack)))
+
+  sr_env <- sr_data %>%
+    dplyr::inner_join(sr_data_epochs) %>%
+    dplyr::inner_join(sr_data_statics) %>%
     na.omit()
 
   out_file <- fs::path(out_dir, "fit.rds")
@@ -72,7 +81,7 @@
 
       res$original_data <- env_df
 
-      env_vars <- names(env_df)[!names(env_df) %in% context]
+      env_vars <- names(env_df)[!names(env_df) %in% c(context)]
 
       # Splits
       res$data_split <- initial_split(env_df
@@ -83,9 +92,14 @@
       res$data_test  <- testing(res$data_split)
 
       # Recipe
-      res$rec <- recipe(env_df) %>%
+      res$rec <- recipe(sr ~ .
+                        , env_df
+                        ) %>%
         update_role(any_of(context)
-                    , new_role = "id"
+                    , new_role = "context"
+                    ) %>%
+        update_role(-any_of(context)
+                    , new_role = "predictor"
                     ) %>%
         update_role(sr
                     , new_role = "outcome"
@@ -129,11 +143,11 @@
         parsnip::set_engine("xgboost")
 
       # Workflow
-      res$mod_wf <- workflow_set(preproc = list(rec = res$rec)
-                                 , models = list(glm = res$glm_mod
+      res$mod_wf <- workflow_set(models = list(glm = res$glm_mod
                                                  , rf = res$rf_mod
                                                  , xgb = res$xgb_mod
                                                  )
+                                 , preproc = list(rec = res$rec)
                                  )
 
 
@@ -173,8 +187,8 @@
 
       # Final results
       res$final_fit <- res$fit %>%
-        augment(res$original_data)
-
+        augment(res$original_data) %>%
+        dplyr::mutate(resid = sr - .pred^2)
 
       # Model plot
       res$mod_plot <- res$final_fit %>%
@@ -184,7 +198,6 @@
 
       # Residual plot
       res$resid_plot <- res$final_fit %>%
-        dplyr::mutate(resid = sr - .pred^2) %>%
         ggplot(aes(sr, resid)) +
         geom_point() +
         geom_hline(aes(yintercept = 0)
@@ -203,7 +216,7 @@
 
     # fit <- make_and_fit_sr_model(flor_env, context = names(sr_data))
 
-    fit <- make_and_fit_sr_model(flor_env
+    fit <- make_and_fit_sr_model(sr_env
                                  , folds = 5
                                  , reps = 10
                                  , tune_size = 30
@@ -217,19 +230,40 @@
 
   #------predict--------
 
-  purrr::walk2(env_stack
-               , names(env_stack)
-              , function(x, y) {
+  purrr::walk2(epoch_stack$s
+               , epoch_stack$name
+                , function(x, y) {
 
                  out_file <- fs::path(out_dir, paste0(y, ".tif"))
 
                  if(!file.exists(out_file)) {
 
-                   terra::predict(x
+                   # These vars are in the recipe fed to the tidymodels fit but
+                    # were not predictors. Need to provide these to get
+                    # terra::predict to work as it expects all the same
+                    # columns as were provided to the fit
+                   context_vars <- fit$rec$var_info %>%
+                     dplyr::filter(role == "context") %>%
+                     dplyr::select(variable, type)
+
+                   context_vars_names <- as.list(context_vars$variable)
+
+                   names(context_vars_names) <- context_vars$variable
+
+                   context_vars_names[context_vars$type == "numeric"] <- 1
+                   context_vars_names[context_vars$type != "numeric"] <- "1"
+
+                   context <- as.data.frame(context_vars_names)
+
+                   this_stack <- c(x, static_stack)
+
+                   # Predict fit across the raster(s) in env_stack
+                   terra::predict(this_stack
                                   , fit$fit
                                   , na.rm = TRUE
                                   , type = "raw"
                                   , filename = out_file
+                                  , const = context
                                   , overwrite = TRUE
                                   , cores = 1
                                   )
@@ -241,10 +275,10 @@
                )
 
 
-  sr_tifs <- purrr::map(names(env_stack)
+  sr_tifs <- purrr::map(epoch_stack$name
                         , ~terra::rast(fs::path(out_dir, paste0(., ".tif")))
                         ) %>%
-    stats::setNames(paste0(names(env_stack)))
+    stats::setNames(paste0(epoch_stack$name))
 
 
   sr_tifs <- purrr::map(sr_tifs
@@ -261,12 +295,12 @@
 
       v <- current / ref
 
-      # z <- ref / current
-      #
-      # v <- ifelse(v <= 1 | is.na(v)
-      #             , -1 * v
-      #             , z
-      #             )
+      z <- ref / current
+
+      v <- ifelse(v <= 1 | is.na(v)
+                  , -1 * (1 - v)
+                  , 1 - z
+                  )
 
       return(v)
 
@@ -285,25 +319,28 @@
 
   #-----visualise-------
 
-  sr_ras_current_star <- stars::read_stars(out_file)
+  if(FALSE) {
 
-  plot_ras <- function(star_ras) {
+    sr_ras_current_star <- stars::read_stars(out_file)
 
-    n_cells <- stars::st_dimensions(star_ras)$x$to * stars::st_dimensions(star_ras)$y$to
+    plot_ras <- function(star_ras) {
 
-    sr_cuts <- c(hist(star_ras, 5, plot = FALSE)$breaks, Inf)
+      n_cells <- stars::st_dimensions(star_ras)$x$to * stars::st_dimensions(star_ras)$y$to
 
-    tmap::tm_shape(star_ras
-                   , raster.downsample = n_cells > 42468400/10
-                   ) +
-      tmap::tm_raster(breaks = sr_cuts
-                      , palette = "viridis"
-                      , midpoint = 1
-                      )
+      sr_cuts <- c(hist(star_ras, 5, plot = FALSE)$breaks, Inf)
+
+      tmap::tm_shape(star_ras
+                     , raster.downsample = n_cells > 42468400/10
+                     ) +
+        tmap::tm_raster(breaks = sr_cuts
+                        , palette = "viridis"
+                        , midpoint = 1
+                        )
+
+    }
+
+    plot_ras(sr_ras_current_star)
+
+    hist(sr_ras_current_star)
 
   }
-
-  plot_ras(sr_ras_current_star)
-
-  hist(sr_ras_current_star)
-
