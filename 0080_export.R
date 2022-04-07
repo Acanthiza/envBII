@@ -3,7 +3,7 @@
 
  now <- format(Sys.time(), "%Y-%m-%d %H:%M")
 
-  if(nrow(gert::git_status() > 1)) {
+  if(nrow(gert::git_status()) > 1) {
 
     envFunc::git_commit_env(paste0(commit_notes
                                    , ". Successful run: "
