@@ -24,47 +24,73 @@
     tidyr::unnest(cols = sf) %>%
     sf::st_set_geometry(NULL) %>%
     sf::st_as_sf(crs = 3577) %>%
-    sf::st_transform(crs = 4283) %>%
+    sf::st_transform(crs = 7844) %>%
     terra::vect()
 
-  sr_data_epochs <- purrr::map(epochs$r
-                                , terra::extract
-                                , y = sr_rectangles
-                                , na.rm = TRUE
-                                ) %>%
-    stats::setNames(epochs$name) %>%
-    dplyr::bind_rows(.id = "name") %>%
-    tibble::as_tibble() %>%
-    dplyr::filter(!is.na(LC_NAME)) %>%
-    dplyr::left_join(sr_rectangles %>%
-                       sf::st_as_sf() %>%
-                       sf::st_set_geometry(NULL)
-                     ) %>%
-    dplyr::add_count(across(any_of(names(sr_data))), name, name = "cells") %>%
-    dplyr::count(across(any_of(names(sr_data))), name, LC_NAME, cells, name = "count") %>%
-    dplyr::mutate(p = count / cells) %>%
-    tidyr::pivot_wider(id_cols = any_of(c("name", names(sr_data)))
-                       , names_from = "LC_NAME"
-                       , values_from = p
-                       , values_fill = 0
-                       )
+  out_file <- fs::path(out_dir, "sr_data_epochs.rds")
 
-  sr_data_statics <- terra::extract(static_stack
-                                    , y = sr_rectangles
-                                    , fun = mean
-                                    , na.rm = TRUE
-                                    ) %>%
-    tibble::as_tibble() %>%
-    dplyr::left_join(sr_rectangles %>%
-                       sf::st_as_sf() %>%
-                       sf::st_set_geometry(NULL)
-                     ) %>%
-    dplyr::select(any_of(names(sr_data)), any_of(names(static_stack)))
+  if(!file.exists(out_file)) {
+
+    sr_data_epochs <- purrr::map(epochs$r
+                                  , terra::extract
+                                  , y = sr_rectangles
+                                  , na.rm = TRUE
+                                  ) %>%
+      stats::setNames(epochs$name) %>%
+      dplyr::bind_rows(.id = "name") %>%
+      tibble::as_tibble() %>%
+      dplyr::filter(!is.na(LC_NAME)) %>%
+      dplyr::left_join(sr_rectangles %>%
+                         sf::st_as_sf() %>%
+                         sf::st_set_geometry(NULL)
+                       ) %>%
+      dplyr::add_count(across(any_of(names(sr_data))), name, name = "cells") %>%
+      dplyr::count(across(any_of(names(sr_data))), name, LC_NAME, cells, name = "count") %>%
+      dplyr::mutate(p = count / cells) %>%
+      tidyr::pivot_wider(id_cols = any_of(c("name", names(sr_data)))
+                         , names_from = "LC_NAME"
+                         , values_from = p
+                         , values_fill = 0
+                         )
+
+    rio::export(sr_data_epochs
+                , out_file
+                )
+
+
+  } else sr_data_epochs <- rio::import(out_file)
+
+
+  out_file <- fs::path(out_dir, "sr_data_statics.rds")
+
+  if(!file.exists(out_file)) {
+
+    sr_data_statics <- terra::extract(static_stack
+                                      , y = sr_rectangles
+                                      , fun = mean
+                                      , na.rm = TRUE
+                                      ) %>%
+      tibble::as_tibble() %>%
+      dplyr::left_join(sr_rectangles %>%
+                         sf::st_as_sf() %>%
+                         sf::st_set_geometry(NULL)
+                       ) %>%
+      dplyr::select(any_of(names(sr_data)), any_of(names(static_stack)))
+
+    rio::export(sr_data_statics
+                , out_file
+                )
+
+  } else sr_data_statics <- rio::import(out_file)
+
 
   sr_env <- sr_data %>%
     dplyr::inner_join(sr_data_epochs) %>%
     dplyr::inner_join(sr_data_statics) %>%
     na.omit()
+
+
+  #-------Model--------
 
   out_file <- fs::path(out_dir, "fit.rds")
 
@@ -130,22 +156,22 @@
                           ) %>%
         parsnip::set_engine("glmnet")
 
-      res$xgb_mod <- boost_tree(mode = "regression") %>%
-        parsnip::set_args(mtry = tune()
-                          , trees = tune()
-                          , min_n = tune()
-                          , tree_depth = tune()
-                          , learn_rate = tune()
-                          , loss_reduction = tune()
-                          , sample_size = tune()
-                          , stop_iter = tune()
-                          ) %>%
-        parsnip::set_engine("xgboost")
+      # res$xgb_mod <- boost_tree(mode = "regression") %>%
+      #   parsnip::set_args(mtry = tune()
+      #                     , trees = tune()
+      #                     , min_n = tune()
+      #                     , tree_depth = tune()
+      #                     , learn_rate = tune()
+      #                     , loss_reduction = tune()
+      #                     , sample_size = tune()
+      #                     , stop_iter = tune()
+      #                     ) %>%
+      #   parsnip::set_engine("xgboost")
 
       # Workflow
       res$mod_wf <- workflow_set(models = list(glm = res$glm_mod
                                                  , rf = res$rf_mod
-                                                 , xgb = res$xgb_mod
+                                                 #, xgb = res$xgb_mod
                                                  )
                                  , preproc = list(rec = res$rec)
                                  )
@@ -218,8 +244,8 @@
 
     fit <- make_and_fit_sr_model(sr_env
                                  , folds = 5
-                                 , reps = 10
-                                 , tune_size = 30
+                                 , reps = 5
+                                 , tune_size = 10
                                  , context = names(sr_data)
                                  )
 

@@ -208,7 +208,7 @@
                )
 
 
-  #------aggregation-------
+  #------aoi agg-------
 
   agg_dir <- dirname(epochs$agg_path[[1]])
 
@@ -292,7 +292,7 @@
                   )
 
 
-  # reproject
+  #-------static reproject-------
 
   rep_dir <- dirname(statics$rep_path[[1]])
 
@@ -310,7 +310,7 @@
                )
 
 
-  # aggregate
+  #------static agg---------
 
   agg_dir <- dirname(statics$agg_path[[1]])
 
@@ -322,11 +322,11 @@
 
   target_ras <- terra::rast(epochs$agg_path[[1]])
 
-  purrr::walk2(statics$r_rep[!statics$agg_exists]
-               , statics$agg_path[!statics$agg_exists]
-               , ~terra::resample(.x
-                                  , y = target_ras
-                                   , method = "average"
+  purrr::walk2(statics$r_rep#[!statics$agg_exists]
+               , statics$agg_path#[!statics$agg_exists]
+               , ~terra::aggregate(x = .x
+                                   , fact = agg_cells
+                                   #, fun = "mean"
                                    , filename = .y
                                    , overwrite = TRUE
                                    )

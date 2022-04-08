@@ -4,9 +4,11 @@
   if(!exists("run_from")) run_from <- 0
   if(!exists("run_to")) run_to <- 100
 
-  do_run <- function(x) {
+  do_run <- function(x, y) {
 
     ls_size <<- x
+
+    current <<- y
 
     commit_notes <<- paste0("Aggregation landscape at "
                            , ls_size
@@ -23,11 +25,21 @@
 
   }
 
-  sizes <- c(200, 400, 800, 1600, 3200)
+  sizes <- data.frame(size = c(400, 800, 1600, 3200))
 
-  purrr::map(sizes
-             , ~do_run(.)
-             )
+  aois <- data.frame(aoi = c("../envEco/out/KI_50_current"
+                             #, "../envEco/out/HF_50_current"
+                             )
+                     )
+
+  runs <- sizes %>%
+    dplyr::left_join(aois, by = character()) %>%
+    dplyr::arrange(aoi)
+
+  purrr::map2(runs$size
+              , runs$aoi
+              , do_run
+              )
 
 
   #------Compare results--------
