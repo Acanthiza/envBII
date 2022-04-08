@@ -1,4 +1,16 @@
 
+  #------env stack-------
+
+  epoch_stack <- epochs %>%
+    dplyr::select(name, agg_path) %>%
+    dplyr::mutate(s = purrr::map(agg_path, terra::rast)
+                  , s = purrr::map(s, function(x) x %>% stats::setNames(lulandcover$LC_NAME))
+                  )
+
+  static_stack <- terra::rast(statics$agg_path) %>%
+    stats::setNames(statics$name)
+
+
   #-------env data------
 
   rect_around_point <- function(x,xsize,ysize){
@@ -156,22 +168,22 @@
                           ) %>%
         parsnip::set_engine("glmnet")
 
-      # res$xgb_mod <- boost_tree(mode = "regression") %>%
-      #   parsnip::set_args(mtry = tune()
-      #                     , trees = tune()
-      #                     , min_n = tune()
-      #                     , tree_depth = tune()
-      #                     , learn_rate = tune()
-      #                     , loss_reduction = tune()
-      #                     , sample_size = tune()
-      #                     , stop_iter = tune()
-      #                     ) %>%
-      #   parsnip::set_engine("xgboost")
+      res$xgb_mod <- boost_tree(mode = "regression") %>%
+        parsnip::set_args(mtry = tune()
+                          , trees = tune()
+                          , min_n = tune()
+                          , tree_depth = tune()
+                          , learn_rate = tune()
+                          , loss_reduction = tune()
+                          , sample_size = tune()
+                          , stop_iter = tune()
+                          ) %>%
+        parsnip::set_engine("xgboost")
 
       # Workflow
       res$mod_wf <- workflow_set(models = list(glm = res$glm_mod
                                                  , rf = res$rf_mod
-                                                 #, xgb = res$xgb_mod
+                                                 , xgb = res$xgb_mod
                                                  )
                                  , preproc = list(rec = res$rec)
                                  )
@@ -244,7 +256,7 @@
 
     fit <- make_and_fit_sr_model(sr_env
                                  , folds = 5
-                                 , reps = 5
+                                 , reps = 10
                                  , tune_size = 10
                                  , context = names(sr_data)
                                  )
