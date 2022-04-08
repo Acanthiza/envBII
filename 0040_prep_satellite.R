@@ -66,8 +66,8 @@
                                  , y = target_ras
                                  , filename = .y
                                  , overwrite = TRUE
+                                 )
                )
-  )
 
 
   #------static agg---------
@@ -82,12 +82,12 @@
 
   target_ras <- terra::rast(epochs$agg_path[[1]])
 
-  purrr::walk2(statics$r_rep#[!statics$agg_exists]
-               , statics$agg_path#[!statics$agg_exists]
+  purrr::walk2(statics$r_rep[!statics$agg_exists]
+               , statics$agg_path[!statics$agg_exists]
                , ~terra::aggregate(x = .x
                                    , fact = agg_cells
                                    #, fun = "mean"
                                    , filename = .y
                                    , overwrite = TRUE
+                                   )
                )
-  )

@@ -3,16 +3,14 @@
 
   library(magrittr)
 
-  source("0010_setup.R")
-
-  if(!exists("run_from")) run_from <- 20
+  if(!exists("run_from")) run_from <- 0
   if(!exists("run_to")) run_to <- 100
 
   do_run <- function(x, y) {
 
     ls_size <<- x
 
-    current <<- y
+    current <<- as.character(y)
 
     commit_notes <<- paste0("Aggregation landscape at "
                            , ls_size
@@ -59,7 +57,6 @@
                  )
 
   }
-
 
 
   #-----RUN-------

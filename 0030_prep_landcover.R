@@ -6,35 +6,35 @@
 
   epochs <- fs::dir_info(landcover_folder
                          , recurse = TRUE
-  ) %>%
+                         ) %>%
     dplyr::select(path) %>%
     dplyr::filter(grepl("tif$", path)) %>%
     envFunc::filter_test_func() %>%
     dplyr::mutate(name = gsub("\\.tif","",basename(path))
                   , name = gsub("LANDCOVER", "Landcover", name)
-    ) %>%
+                  ) %>%
     dplyr::left_join(luep) %>%
     dplyr::mutate(r = purrr::map(path, terra::rast)
                   , raw_path = fs::path(data_dir
                                         , "landcover"
                                         , "raw"
                                         , paste0(name, ".tif")
-                  )
+                                        )
                   , raw_exists = file.exists(raw_path)
                   , seg_path = fs::path(data_dir
                                         , "landcover"
                                         , "segregated"
                                         , paste0(name, ".tif")
-                  )
+                                        )
                   , seg_exists = file.exists(seg_path)
                   , agg_path = fs::path(data_dir
                                         , "landcover"
                                         , "aggregated"
                                         , ls_size
                                         , paste0(name, ".tif")
-                  )
+                                        )
                   , agg_exists = file.exists(agg_path)
-    )
+                  )
 
   #------aoi raw--------
 
@@ -48,8 +48,8 @@
                               , y = vect(aoi)
                               , filename = .y
                               , overwrite = TRUE
+                              )
                )
-  )
 
 
   #------aoi seg------
@@ -66,8 +66,8 @@
                , ~terra::segregate(.x
                                    , filename = .y
                                    , overwrite = TRUE
+                                   )
                )
-  )
 
 
   #------aoi agg-------
@@ -97,5 +97,5 @@
                                    , fun = agg_func
                                    , filename = .y
                                    , overwrite = TRUE
+                                   )
                )
-  )

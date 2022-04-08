@@ -7,14 +7,20 @@
 
   agg_cells <- floor(sqrt((ls_size * ls_size) / (30 * 30)))
 
+
+  # dir for data inputs
+  data_dir <- fs::path("data"
+                       , basename(current)
+                       )
+
+  if(!file.exists(data_dir)) fs::dir_create(data_dir)
+
+
+  # dir for analysis outputs
   out_dir <- fs::path("out"
                       , basename(current)
                       , ls_size
                       )
-
-  data_dir <- fs::path("data"
-                       , basename(current)
-                       )
 
   if(!file.exists(out_dir)) fs::dir_create(out_dir)
 
