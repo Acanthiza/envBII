@@ -55,14 +55,6 @@
   options(scipen = 999)
 
 
-  #-------maps--------
-
-  # IBRA Sub
-  ibra_sub <- sf::st_read(fs::path("..","envEco", "out","shp","ibra_sub.shp")) %>%
-    sf::st_transform(crs = 4283) %>%
-    sf::st_make_valid()
-
-
   #-------lookups-----------
   # epochs
   luep <- rio::import("luEp.csv") %>%

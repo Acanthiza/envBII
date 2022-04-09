@@ -85,30 +85,46 @@
                   , mod_plot = purrr::map(obj, "mod_plot")
                   , resid_plot = purrr::map(obj, "resid_plot")
                   , imp_plot = purrr::map(obj, "imp_plot")
+                  , label = paste0(gsub("out\\/|_50.*"
+                                        , ""
+                                        , path
+                                        )
+                                   , ": "
+                                   , agg_size
+                                   )
                   )
 
+  library(ggplot2)
+  library(patchwork)
+
   mod_plots <- patchwork::wrap_plots(purrr::map2(sr_fits$mod_plot
-                                                 , sr_fits$agg_size
+                                                 , sr_fits$label
                                                  , ~ .x + labs(title = .y)
                                                  )
                                      )
 
   resid_plots <- patchwork::wrap_plots(purrr::map2(sr_fits$resid_plot
-                                                 , sr_fits$agg_size
+                                                   , sr_fits$label
                                                  , ~ .x + labs(title = .y)
                                                  )
                                      )
 
   imp_plots <- patchwork::wrap_plots(purrr::map2(sr_fits$imp_plot
-                                                 , sr_fits$agg_size
+                                                 , sr_fits$label
                                                  , ~ .x + labs(title = .y)
                                                  )
                                      )
 
 
+  #-------maps--------
+
+  # IBRA Sub
+  ibra_sub <- sf::st_read(fs::path("..","envEco", "out","shp","ibra_sub.shp")) %>%
+    sf::st_transform(crs = 4283) %>%
+    sf::st_make_valid()
 
 
-  # model results
+  #--------model results--------
 
   sr_bii_tifs <- fs::dir_ls(recurse = TRUE
                             , regexp = "sr_bii"
@@ -126,9 +142,13 @@
                                                 , terra::extract
                                                 , y = terra::vect(ibra_sub)
                                                 )
+                  , aoi = gsub("out\\/|_50.*"
+                               , ""
+                               , path
+                               )
                   ) %>%
     tidyr::unnest(cols = sr_bii_extract) %>%
-    dplyr::group_by(ID, agg_size) %>%
+    dplyr::group_by(ID, agg_size, aoi) %>%
     dplyr::summarise(cells = dplyr::n()
                     , sr_bii = mean(lyr1, na.rm = TRUE)
                     , sr_bii_se = sd(lyr1, na.rm = TRUE) / sqrt(cells)
@@ -145,4 +165,8 @@
   ggplot(sr_bii_tifs, aes(sr_bii, as.factor(agg_size))) +
     geom_col() +
     geom_errorbarh(aes(xmin = sr_bii - sr_bii_se, xmax = sr_bii + sr_bii_se)) +
-    facet_wrap(~IBRA_SUB_N)
+    geom_vline(aes(xintercept = 0)
+               , linetype = 2
+               , colour = "red"
+               ) +
+    facet_grid(IBRA_SUB_N ~ aoi)
