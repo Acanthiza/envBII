@@ -111,7 +111,8 @@
     make_and_fit_sr_model <- function(env_df
                                       , folds = 2
                                       , reps = 2
-                                      , tune_size = 5
+                                      , tune_size = 3
+                                      , cv_method = "cv_normal"
                                       , context = names(sr_data)
                                       ) {
 
@@ -153,7 +154,21 @@
                  )
 
       # Resampling
-      res$folds <- vfold_cv(res$data_train, v = folds, repeats = reps)
+      res$folds <- if(cv_method == "cv_sptaial") {
+
+        spatial_clustering_cv(res$data_train
+                              , coords = c(lat, long)
+                              , v = folds
+                              #, repeats = reps
+                              )
+
+
+      } else {
+
+        vfold_cv(res$data_train, v = folds, repeats = reps)
+
+      }
+
 
       # Models
       res$rf_mod <- rand_forest(mode = "regression") %>%
@@ -196,21 +211,21 @@
 
 
 
-      res$race_results <- res$mod_wf %>%
-        workflow_map("tune_race_anova"
+      res$wf_results <- res$mod_wf %>%
+        workflow_map(if(cv_method == "cv_sptaial") "tune_grid" else "tune_race_anova"
                      , seed = 8591
                      , resamples = res$folds
                      , grid = tune_size
                      , control = res$race_ctrl
                      )
 
-      res$wf_best <- res$race_results %>%
+      res$wf_best <- res$wf_results %>%
         rank_results() %>%
         filter(.metric == "rmse") %>%
         dplyr::slice(1) %>%
         dplyr::pull(wflow_id)
 
-      res$mod_best <- res$race_results %>%
+      res$mod_best <- res$wf_results %>%
         extract_workflow_set_result(res$wf_best) %>%
         select_best(metric = "rmse")
 
@@ -229,19 +244,27 @@
         dplyr::mutate(resid = sr - .pred^2)
 
       # Model plot
-      res$mod_plot <- res$final_fit %>%
-        ggplot(aes(sr, .pred^2)) +
-        geom_point() +
-        geom_abline(color = "gray50", lty = 2)
+      if(FALSE) {
+
+        res$mod_plot <- res$final_fit %>%
+          ggplot(aes(sr, .pred^2)) +
+          geom_point() +
+          geom_abline(color = "gray50", lty = 2)
+
+      }
 
       # Residual plot
-      res$resid_plot <- res$final_fit %>%
-        ggplot(aes(sr, resid)) +
-        geom_point() +
-        geom_hline(aes(yintercept = 0)
-                   , colour = "gray50"
-                   , lty = 2
-                   )
+      if(FALSE) {
+
+        res$resid_plot <- res$final_fit %>%
+          ggplot(aes(sr, resid)) +
+          geom_point() +
+          geom_hline(aes(yintercept = 0)
+                     , colour = "gray50"
+                     , lty = 2
+                     )
+
+      }
 
       # Importance plot
       res$imp_plot <- res$fit %>%
@@ -255,9 +278,9 @@
     # fit <- make_and_fit_sr_model(flor_env, context = names(sr_data))
 
     fit <- make_and_fit_sr_model(sr_env
-                                 , folds = 5
-                                 , reps = 10
-                                 , tune_size = 10
+                                 , folds = 10
+                                 #, reps = 10
+                                 , tune_size = 20
                                  , context = names(sr_data)
                                  )
 

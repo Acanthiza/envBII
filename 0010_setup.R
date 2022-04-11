@@ -5,6 +5,8 @@
 
   if(!exists("ls_size")) ls_size <- 1600
 
+  if(!exists("cv_method")) cv_method <- "cv_normal"
+
   agg_cells <- floor(sqrt((ls_size * ls_size) / (30 * 30)))
 
 
@@ -19,6 +21,7 @@
   # dir for analysis outputs
   out_dir <- fs::path("out"
                       , basename(current)
+                      , cv_method
                       , ls_size
                       )
 
@@ -35,6 +38,7 @@
   library(tmap)
 
   library(tidymodels)
+  library(spatialsample)
   library(finetune)
 
 
