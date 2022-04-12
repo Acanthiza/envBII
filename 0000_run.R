@@ -1,5 +1,5 @@
 
-  run_parallel <- 14
+  run_parallel <- 6
 
   library(magrittr)
 
@@ -29,7 +29,11 @@
 
   }
 
-  sizes <- data.frame(size = c(200, 400, 800, 1600, 3200, 6400, 12800))
+  sizes <- data.frame(size = c(100, 200, 400, 800, 1600
+                               , 3200
+                               #, 6400
+                               )
+                      )
 
   aois <- data.frame(aoi = c("../envEco/out/KI_50_current"
                              , "../envEco/out/HF_50_current"
@@ -45,6 +49,7 @@
   runs <- sizes %>%
     dplyr::left_join(aois, by = character()) %>%
     dplyr::left_join(cv_methods, by = character()) %>%
+    tibble::as_tibble() %>%
     dplyr::arrange(aoi) %>%
     dplyr::mutate(check = fs::path(gsub("envEco", "envBII", aoi)
                                    , cv_method
@@ -114,7 +119,7 @@
       workflowsets::rank_results() %>%
       dplyr::filter(.metric == metric) %>%
       dplyr::slice(1) %>%
-      dplyr::pull(!!ensym(col))
+      dplyr::pull(!!rlang::ensym(col))
 
     bm
 
@@ -130,31 +135,47 @@
     dplyr::arrange(size) %>%
     dplyr::filter(done) %>%
     dplyr::mutate(fit = purrr::map(path, rio::import)
-                  , mod_plot = purrr::map(fit, "mod_plot")
-                  , resid_plot = purrr::map(fit, "resid_plot")
+                  #, mod_plot = purrr::map(fit, "mod_plot")
+                  #, resid_plot = purrr::map(fit, "resid_plot")
                   , imp_plot = purrr::map(fit, "imp_plot")
-                  , func = purrr::map_chr(fit
-                                          , ~extract_best_met(.$race_results
+                  , wf_results = purrr::map(fit
+                                            , function(x) if(is.null(x$wf_results)) x$race_results else x$wf_results
+                                            )
+                  , func = purrr::map_chr(wf_results
+                                          , ~extract_best_met(.
                                                               , "rmse"
                                                               , "model"
                                                               )
                                           )
-                  , pack = purrr::map_chr(fit
-                                          , ~ .$fit$fit$fit$fit$call %>% `[[`(1) %>% `[[`(2) %>% as.character()
-                                          )
-                  , rmse = purrr::map_dbl(fit
-                                           , ~extract_best_met(.$race_results
+                  # , pack = purrr::map_chr(fit
+                  #                         , ~ .$fit$fit$fit$fit$call %>% `[[`(1) %>% `[[`(2) %>% as.character()
+                  #                         )
+                  , rmse = purrr::map_dbl(wf_results
+                                           , ~extract_best_met(.
                                                                , "rmse"
                                                                )
                                            )
-                  , rsq = purrr::map_dbl(fit
-                                          , ~extract_best_met(.$race_results
+                  , rsq = purrr::map_dbl(wf_results
+                                          , ~extract_best_met(.
                                                               , "rsq"
                                                               )
                                           )
+                  , full_model = purrr::map(fit
+                                            , ~yardstick::metrics(.$final_fit
+                                                                  , truth = sr
+                                                                  , estimate = .pred
+                                                                  ) %>%
+                                              tidyr::pivot_wider(names_from = .metric
+                                                                 , values_from = .estimate
+                                                                 , names_prefix = "full_model"
+                                                                 )
+                                            )
                   ) %>%
-    dplyr::group_by(aoi) %>%
-    dplyr::mutate(best = rmse == min(rmse)) %>%
+    tidyr::unnest(cols = c(full_model))
+
+  sr_fits_best <- sr_fits %>%
+    dplyr::group_by(aoi, cv_method) %>%
+    dplyr::mutate(best = full_modelrmse == min(full_modelrmse)) %>%
     dplyr::ungroup() %>%
     dplyr::mutate(label = paste0(aoi
                                  , ": "
@@ -165,13 +186,19 @@
                                  )
                   )
 
-  sr_fits_short <- sr_fits %>%
-    dplyr::select(size, aoi, cv_method, rmse, rsq, func, pack, best, label)
+  sr_fits_short <- sr_fits_best %>%
+    dplyr::select(size, aoi, cv_method
+                  , contains("full")
+                  , rmse, rsq
+                  , func
+                  #, pack
+                  , best, label
+                  )
 
   library(ggplot2)
   library(patchwork)
 
-  mod_plots <- sr_fits %>%
+  mod_plots <- sr_fits_best %>%
     dplyr::mutate(final_fit = purrr::map(fit, "final_fit")) %>%
     dplyr::select(any_of(names(sr_fits_short)), final_fit) %>%
     tidyr::unnest(cols = c(final_fit)) %>%
@@ -186,9 +213,9 @@
       facet_grid(size ~ paste0(aoi, ": ", cv_method))
 
 
-  resid_plots <- sr_fits %>%
+  resid_plots <- sr_fits_best %>%
     dplyr::mutate(final_fit = purrr::map(fit, "final_fit")) %>%
-    dplyr::select(any_of(names(sr_fits_short)), final_fit) %>%
+    dplyr::select(any_of▲(names(sr_fits_short)), final_fit) %>%
     tidyr::unnest(cols = c(final_fit)) %>%
     ggplot(aes(sr, resid, colour = best)) +
       geom_jitter(shape = ".") +
@@ -196,8 +223,8 @@
       geom_smooth() +
       facet_grid(size ~ paste0(aoi, ": ", cv_method))
 
-  imp_plots <- patchwork::wrap_plots(purrr::map2(sr_fits$imp_plot
-                                                 , sr_fits$label
+  imp_plots <- patchwork::wrap_plots(purrr::map2(sr_fits_best$imp_plot[sr_fits_best$best]
+                                                 , sr_fits_best$label[sr_fits_best$best]
                                                  , ~ .x + labs(title = .y)
                                                  )
                                      )
@@ -228,7 +255,7 @@
     dplyr::arrange(size) %>%
     dplyr::filter(done) %>%
     dplyr::mutate(r = purrr::map(path, terra::rast)
-                  , cells = purrr::map_dbl(r, terra::ncell)
+                  , tif_cells = purrr::map_dbl(r, terra::ncell)
                   , sr_bii_extract = purrr::map(r
                                                 , terra::extract
                                                 , y = terra::vect(lsa)
@@ -236,29 +263,35 @@
                   ) %>%
     dplyr::left_join(sr_fits_short) %>%
     tidyr::unnest(cols = sr_bii_extract) %>%
-    dplyr::group_by(ID, across(any_of(names(sr_fits_short)))) %>%
-    dplyr::summarise(cells = dplyr::n()
-                    , sr_bii = mean(lyr1, na.rm = TRUE)
-                    , sr_bii_se = sd(lyr1, na.rm = TRUE) / sqrt(cells)
-                    ) %>%
-    dplyr::ungroup() %>%
-    dplyr::filter(cells > 100) %>%
     dplyr::left_join(lsa %>%
                        sf::st_set_geometry(NULL) %>%
                        dplyr::mutate(ID = dplyr::row_number()) %>%
                        dplyr::select(ID, where(is.character))
                      )
 
+  sr_bii_tifs_summary <- sr_bii_tifs %>%
+    dplyr::group_by(ID, tif_cells, across(any_of(names(sr_fits_short))), LSA, path) %>%
+    dplyr::summarise(cells = dplyr::n()
+                    , sr_bii = mean(lyr1, na.rm = TRUE)
+                    , sr_bii_se = sd(lyr1, na.rm = TRUE) / sqrt(cells)
+                    ) %>%
+    dplyr::ungroup()
 
-  ggplot(sr_bii_tifs, aes(sr_bii
-                          , as.factor(size)
-                          , fill = best
-                          )
+
+  ggplot(sr_bii_tifs_summary %>%
+           dplyr::filter(aoi == LSA)
+         , aes(sr_bii
+               , as.factor(size)
+               , fill = best
+               #, colour = best
+               )
          ) +
     geom_col() +
-    geom_errorbarh(aes(xmin = sr_bii - sr_bii_se, xmax = sr_bii + sr_bii_se)) +
+    geom_errorbarh(aes(xmin = sr_bii - sr_bii_se, xmax = sr_bii + sr_bii_se)
+                  , height = 0.2
+                   ) +
     geom_vline(aes(xintercept = 0)
                , linetype = 2
                , colour = "red"
                ) +
-    facet_grid(LSA ~ paste0(aoi, ": ", cv_method))
+    facet_grid(cv_method ~ LSA)

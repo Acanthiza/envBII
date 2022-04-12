@@ -279,8 +279,8 @@
 
     fit <- make_and_fit_sr_model(sr_env
                                  , folds = 10
-                                 #, reps = 10
-                                 , tune_size = 20
+                                 , reps = 10
+                                 , tune_size = 30
                                  , context = names(sr_data)
                                  )
 
