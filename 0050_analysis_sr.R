@@ -377,33 +377,3 @@
 
   }
 
-  sr_bii <- stars::read_stars(out_file)
-
-
-  #-----visualise-------
-
-  if(FALSE) {
-
-    sr_ras_current_star <- stars::read_stars(out_file)
-
-    plot_ras <- function(star_ras) {
-
-      n_cells <- stars::st_dimensions(star_ras)$x$to * stars::st_dimensions(star_ras)$y$to
-
-      sr_cuts <- c(hist(star_ras, 5, plot = FALSE)$breaks, Inf)
-
-      tmap::tm_shape(star_ras
-                     , raster.downsample = n_cells > 42468400/10
-                     ) +
-        tmap::tm_raster(breaks = sr_cuts
-                        , palette = "viridis"
-                        , midpoint = 1
-                        )
-
-    }
-
-    plot_ras(sr_ras_current_star)
-
-    hist(sr_ras_current_star)
-
-  }

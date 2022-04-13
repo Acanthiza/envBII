@@ -215,7 +215,7 @@
 
   resid_plots <- sr_fits_best %>%
     dplyr::mutate(final_fit = purrr::map(fit, "final_fit")) %>%
-    dplyr::select(any_of▲(names(sr_fits_short)), final_fit) %>%
+    dplyr::select(any_of(names(sr_fits_short)), final_fit) %>%
     tidyr::unnest(cols = c(final_fit)) %>%
     ggplot(aes(sr, resid, colour = best)) +
       geom_jitter(shape = ".") +
@@ -295,3 +295,60 @@
                , colour = "red"
                ) +
     facet_grid(cv_method ~ LSA)
+
+
+  #------outputs-------
+
+  final_tifs <- sr_bii_tifs_summary %>%
+    dplyr::group_by(aoi) %>%
+    dplyr::filter(aoi == LSA
+                  , best
+                  , rmse == min(rmse)
+                  ) %>%
+    dplyr::ungroup()
+
+  hf_tif <- final_tifs %>%
+    dplyr::filter(aoi == "HF") %>%
+    dplyr::pull(path) %>%
+    stars::read_stars()
+
+  ki_tif <- final_tifs %>%
+    dplyr::filter(aoi == "KI") %>%
+    dplyr::pull(path) %>%
+    stars::read_stars()
+
+  #-----visualise-------
+
+  plot_ras <- function(star_ras, bks = 5, mp = 0) {
+
+    # bks - classes in continuous legend = bks + 2
+    # mp - midpoint for continuous legend.
+
+    n_cells <- stars::st_dimensions(star_ras)$x$to * stars::st_dimensions(star_ras)$y$to
+
+    sr_cuts <- unique(c(-1, hist(star_ras, bks, plot = FALSE)$breaks, 1))
+
+    tmap::tm_shape(star_ras
+                   , raster.downsample = n_cells > 42468400/4
+                   ) +
+      tmap::tm_raster(breaks = sr_cuts
+                      , palette = "viridis"
+                      , midpoint = mp
+                      )
+
+  }
+
+
+
+  hf_map <- plot_ras(hf_tif, 8, 0)
+
+  hf_map
+  hist(hf_tif)
+
+
+  ki_map <- plot_ras(ki_tif, 8, 0)
+
+  ki_map
+  hist(ki_tif)
+
+
