@@ -65,7 +65,7 @@
                , epochs$seg_path[!epochs$seg_exists]
                , ~terra::segregate(.x
                                    , filename = .y
-                                   , overwrite = TRUE
+                                   , overwrite = FALSE
                                    )
                )
 

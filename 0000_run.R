@@ -29,20 +29,21 @@
 
   }
 
-  sizes <- data.frame(size = c(100, 200, 400, 800, 1600
-                               , 3200
+  sizes <- data.frame(size = c(200
+                               #, 400, 800, 1600
+                               #, 3200
                                #, 6400
                                )
                       )
 
-  aois <- data.frame(aoi = c("../envEco/out/KI_50_current"
-                             , "../envEco/out/HF_50_current"
+  aois <- data.frame(aoi = c("../envEco/out/SA_50_current"
+                             #, "../envEco/out/HF_50_current"
                              )
                      ) %>%
     dplyr::mutate(aoi = forcats::fct_inorder(aoi))
 
   cv_methods <- data.frame(cv_method = c("cv_normal"
-                                     , "cv_spatial"
+                                     #, "cv_spatial"
                                      )
                           )
 
@@ -279,7 +280,8 @@
 
 
   ggplot(sr_bii_tifs_summary %>%
-           dplyr::filter(aoi == LSA)
+           dplyr::filter(aoi == LSA) %>%
+           dplyr::filter(best)
          , aes(sr_bii
                , as.factor(size)
                , fill = best

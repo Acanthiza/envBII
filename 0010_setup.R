@@ -1,6 +1,16 @@
 
   #------Project-------
 
+  if(nrow(runs) == 1) {
+
+    current <- as.character(runs$aoi)
+
+    ls_size <- runs$size
+
+    cv_method <- as.character(runs$cv_method)
+
+  }
+
   if(!exists("current")) current <- "../envEco/out/KI_50_current"
 
   if(!exists("ls_size")) ls_size <- 1600

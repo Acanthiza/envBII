@@ -278,8 +278,8 @@
     # fit <- make_and_fit_sr_model(flor_env, context = names(sr_data))
 
     fit <- make_and_fit_sr_model(sr_env
-                                 , folds = 10
-                                 , reps = 10
+                                 , folds = 5
+                                 , reps = 5
                                  , tune_size = 30
                                  , context = names(sr_data)
                                  )
@@ -346,7 +346,6 @@
                         , function(x) x^2
                         )
 
-  sr_by_lc <-
 
   #-------sr bii---------
 
