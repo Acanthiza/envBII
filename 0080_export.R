@@ -1,6 +1,11 @@
 
  #---------To github--------
 
+ commit_notes <- paste0("Aggregation landscape at "
+                        , ls_size
+                        , " m"
+                        )
+
  now <- format(Sys.time(), "%Y-%m-%d %H:%M")
 
   if(nrow(gert::git_status()) > 1) {

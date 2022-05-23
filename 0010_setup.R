@@ -1,22 +1,6 @@
 
   #------Project-------
 
-  if(nrow(runs) == 1) {
-
-    current <- as.character(runs$aoi)
-
-    ls_size <- runs$size
-
-    cv_method <- as.character(runs$cv_method)
-
-  }
-
-  if(!exists("current")) current <- "../envEco/out/KI_50_current"
-
-  if(!exists("ls_size")) ls_size <- 1600
-
-  if(!exists("cv_method")) cv_method <- "cv_normal"
-
   agg_cells <- floor(sqrt((ls_size * ls_size) / (30 * 30)))
 
 
@@ -46,6 +30,7 @@
   library(dplyr)
   library(purrr)
   library(tmap)
+  library(future)
 
   library(tidymodels)
   library(spatialsample)
@@ -69,6 +54,13 @@
   options(scipen = 999)
 
 
+  future::plan(sequential)
+
+  future::plan(multisession
+               , workers = if(parallel::detectCores() > max_cores) max_cores else parallel::detectCores() - 1
+               )
+
+
   #-------lookups-----------
   # epochs
   luep <- rio::import("luEp.csv") %>%
@@ -88,3 +80,40 @@
   # landcover
   lulandcover <- rio::import("luLandcover.csv") %>%
     tibble::as_tibble()
+
+
+
+  #-------maps--------
+
+  # IBRA Sub
+  ibra_sub <- sf::st_read(fs::path("..","envEco", "out","shp","ibra_sub.shp")) %>%
+    sf::st_transform(crs = 4283) %>%
+    sf::st_make_valid()
+
+  # LSA
+  lsa <- sf::st_read(fs::path("..","envEco", "out","shp","lsa.shp")) %>%
+    sf::st_transform(crs = 4283) %>%
+    sf::st_make_valid()
+
+
+  #------palettes------
+
+  lulsa <- rio::import(fs::path("data", "luLSA.csv"))
+
+  # Set colours for LSAs - LSARegion
+  lsa_palette <- mapply(FUN = function(red,green,blue,alpha) rgb(red
+                                                                 , green
+                                                                 , blue
+                                                                 , alpha
+                                                                 , maxColorValue = 255
+                                                                 )
+                        , red = lulsa$Red
+                        , green = lulsa$Green
+                        , blue = lulsa$Blue
+                        , alpha = lulsa$Alpha
+                        )
+
+
+  names(lsa_palette) <- lulsa$LSA
+  lsa_pal_fill <- scale_fill_manual(name = "LSA", values = lsa_palette, drop = TRUE)
+  lsa_pal_col <- scale_colour_manual(name = "LSA", values = lsa_palette, drop = TRUE)

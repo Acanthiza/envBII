@@ -3,7 +3,7 @@
 
   rasters_aligned <- fs::path("../../data/raster/aligned"
                               , gsub("_current|_potential", "", basename(current))
-  )
+                              )
 
   use_ras_type <- unique(envEcosystems::env$process[envEcosystems::env$provider != "KIDTM1m"])
 
@@ -23,33 +23,33 @@
                    #, "03\\d{4}05" # autumn
                    , "06\\d{4}08" # winter
                    , "09\\d{4}11" # spring
-  )
+                   )
 
   statics <- envRaster::parse_env_tif(rasters_aligned) %>%
     dplyr::filter(process %in% use_ras_type) %>%
     dplyr::filter(!grepl(paste0(no_ras_type,collapse = "|")
                          , path
-    )
-    ) %>%
+                         )
+                  ) %>%
     envFunc::filter_test_func() %>%
     dplyr::mutate(r = map(path
                           , terra::rast
-    )
-    , name = gsub("_aligned|\\.tif", "", basename(path))
-    , rep_path = fs::path(data_dir
-                          , "statics"
-                          , "reproject"
-                          , gsub("_aligned", "", basename(path))
-    )
-    , rep_exists = file.exists(rep_path)
-    , agg_path = fs::path(data_dir
-                          , "statics"
-                          , "aggregate"
-                          , ls_size
-                          , gsub("_aligned", "", basename(path))
-    )
-    , agg_exists = purrr::map_lgl(agg_path, file.exists)
-    )
+                          )
+                  , name = gsub("_aligned|\\.tif", "", basename(path))
+                  , rep_path = fs::path(data_dir
+                                        , "statics"
+                                        , "reproject"
+                                        , gsub("_aligned", "", basename(path))
+                                        )
+                  , rep_exists = file.exists(rep_path)
+                  , agg_path = fs::path(data_dir
+                                        , "statics"
+                                        , "aggregate"
+                                        , ls_size
+                                        , gsub("_aligned", "", basename(path))
+                                        )
+                  , agg_exists = purrr::map_lgl(agg_path, file.exists)
+                  )
 
 
   #-------static reproject-------
@@ -58,7 +58,7 @@
 
   if(!file.exists(rep_dir)) fs::dir_create(rep_dir)
 
-  target_ras <- terra::rast(epochs$raw_path[[1]])
+  target_ras <- epochs$r[[1]]
 
   purrr::walk2(statics$r[!statics$rep_exists]
                , statics$rep_path[!statics$rep_exists]
@@ -80,13 +80,12 @@
     #envFunc::filter_test_func(test_col = "rep_path") %>%
     dplyr::mutate(r_rep = map(rep_path, terra::rast))
 
-  target_ras <- terra::rast(epochs$agg_path[[1]])
-
   purrr::walk2(statics$r_rep[!statics$agg_exists]
                , statics$agg_path[!statics$agg_exists]
                , ~terra::aggregate(x = .x
                                    , fact = agg_cells
-                                   #, fun = "mean"
+                                   , fun = "mean"
+                                   , na.rm = TRUE
                                    , filename = .y
                                    , overwrite = TRUE
                                    )

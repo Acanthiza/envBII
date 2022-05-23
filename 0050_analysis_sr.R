@@ -13,29 +13,12 @@
 
   #-------env data------
 
-  rect_around_point <- function(x,xsize,ysize){
-    bbox <- sf::st_bbox(x)
-    bbox <- bbox +c(xsize/2,ysize/2,-xsize/2,-ysize/2)
-    return(sf::st_as_sfc(bbox))
-  }
-
-
-  sr_rectangles <- sr_data %>%
+  sr_points <- sr_data %>%
     sf::st_as_sf(coords = c("long", "lat")
                  , crs = 4283
                  , remove = FALSE
                  ) %>%
-    sf::st_transform(crs = 3577) %>%
-    dplyr::mutate(ID = row_number()
-                  , sf = purrr::map(geometry
-                           , rect_around_point
-                           , xsize = agg_cells*30/2
-                           , ysize = agg_cells*30/2
-                           )
-                  ) %>%
-    tidyr::unnest(cols = sf) %>%
-    sf::st_set_geometry(NULL) %>%
-    sf::st_as_sf(crs = 3577) %>%
+    dplyr::mutate(ID = row_number()) %>%
     sf::st_transform(crs = 7844) %>%
     terra::vect()
 
@@ -43,27 +26,18 @@
 
   if(!file.exists(out_file)) {
 
-    sr_data_epochs <- purrr::map(epochs$r
+    sr_data_epochs <- purrr::map(epoch_stack$s
                                   , terra::extract
-                                  , y = sr_rectangles
-                                  , na.rm = TRUE
+                                  , y = sr_points
                                   ) %>%
       stats::setNames(epochs$name) %>%
       dplyr::bind_rows(.id = "name") %>%
       tibble::as_tibble() %>%
-      dplyr::filter(!is.na(LC_NAME)) %>%
-      dplyr::left_join(sr_rectangles %>%
+      dplyr::inner_join(sr_points %>%
                          sf::st_as_sf() %>%
                          sf::st_set_geometry(NULL)
                        ) %>%
-      dplyr::add_count(across(any_of(names(sr_data))), name, name = "cells") %>%
-      dplyr::count(across(any_of(names(sr_data))), name, LC_NAME, cells, name = "count") %>%
-      dplyr::mutate(p = count / cells) %>%
-      tidyr::pivot_wider(id_cols = any_of(c("name", names(sr_data)))
-                         , names_from = "LC_NAME"
-                         , values_from = p
-                         , values_fill = 0
-                         )
+      dplyr::select(any_of(names(sr_data)), any_of(names(epoch_stack$s[[1]])))
 
     rio::export(sr_data_epochs
                 , out_file
@@ -78,12 +52,10 @@
   if(!file.exists(out_file)) {
 
     sr_data_statics <- terra::extract(static_stack
-                                      , y = sr_rectangles
-                                      , fun = mean
-                                      , na.rm = TRUE
+                                      , y = sr_points
                                       ) %>%
       tibble::as_tibble() %>%
-      dplyr::left_join(sr_rectangles %>%
+      dplyr::inner_join(sr_points %>%
                          sf::st_as_sf() %>%
                          sf::st_set_geometry(NULL)
                        ) %>%
@@ -183,22 +155,22 @@
                           ) %>%
         parsnip::set_engine("glmnet")
 
-      res$xgb_mod <- boost_tree(mode = "regression") %>%
-        parsnip::set_args(mtry = tune()
-                          , trees = tune()
-                          , min_n = tune()
-                          , tree_depth = tune()
-                          , learn_rate = tune()
-                          , loss_reduction = tune()
-                          , sample_size = tune()
-                          , stop_iter = tune()
-                          ) %>%
-        parsnip::set_engine("xgboost")
+      # res$xgb_mod <- boost_tree(mode = "regression") %>%
+      #   parsnip::set_args(mtry = tune()
+      #                     , trees = tune()
+      #                     , min_n = tune()
+      #                     , tree_depth = tune()
+      #                     , learn_rate = tune()
+      #                     , loss_reduction = tune()
+      #                     , sample_size = tune()
+      #                     , stop_iter = tune()
+      #                     ) %>%
+      #   parsnip::set_engine("xgboost")
 
       # Workflow
       res$mod_wf <- workflow_set(models = list(glm = res$glm_mod
                                                  , rf = res$rf_mod
-                                                 , xgb = res$xgb_mod
+                                                 #, xgb = res$xgb_mod
                                                  )
                                  , preproc = list(rec = res$rec)
                                  )
@@ -212,64 +184,48 @@
 
 
       res$wf_results <- res$mod_wf %>%
-        workflow_map(if(cv_method == "cv_sptaial") "tune_grid" else "tune_race_anova"
-                     , seed = 8591
-                     , resamples = res$folds
-                     , grid = tune_size
-                     , control = res$race_ctrl
-                     )
+        workflowsets::workflow_map(if(cv_method == "cv_sptaial") "tune_grid" else "tune_race_anova"
+                                   , seed = 8591
+                                   , resamples = res$folds
+                                   , grid = tune_size
+                                   , control = res$race_ctrl
+                                   )
+
+      res$wf_plot <- autoplot(res$wf_results)
 
       res$wf_best <- res$wf_results %>%
-        rank_results() %>%
-        filter(.metric == "rmse") %>%
-        dplyr::slice(1) %>%
+        workflowsets::rank_results(select_best = TRUE) %>%
+        dplyr::filter(.metric == "rmse") %>%
+        dplyr::top_n(-1, mean) %>%
         dplyr::pull(wflow_id)
 
       res$mod_best <- res$wf_results %>%
-        extract_workflow_set_result(res$wf_best) %>%
-        select_best(metric = "rmse")
+        workflowsets::extract_workflow_set_result(res$wf_best) %>%
+        tune::select_best(metric = "rmse")
 
       # Final model
       res$final_wf <- res$mod_wf %>%
-        extract_workflow(res$wf_best) %>%
-        finalize_workflow(res$mod_best)
+        workflowsets::extract_workflow(res$wf_best) %>%
+        tune::finalize_workflow(res$mod_best)
 
-      # Fit final model to whole data set
+      # Final fit
       res$fit <- res$final_wf %>%
         fit(data = res$original_data)
 
-      # Final results
-      res$final_fit <- res$fit %>%
-        augment(res$original_data) %>%
-        dplyr::mutate(resid = sr - .pred^2)
+      # Fit final model to test data set to get final metrics
+      res$test <- res$final_wf %>%
+        tune::last_fit(split = res$data_split)
 
-      # Model plot
-      if(FALSE) {
-
-        res$mod_plot <- res$final_fit %>%
-          ggplot(aes(sr, .pred^2)) +
-          geom_point() +
-          geom_abline(color = "gray50", lty = 2)
-
-      }
-
-      # Residual plot
-      if(FALSE) {
-
-        res$resid_plot <- res$final_fit %>%
-          ggplot(aes(sr, resid)) +
-          geom_point() +
-          geom_hline(aes(yintercept = 0)
-                     , colour = "gray50"
-                     , lty = 2
-                     )
-
-      }
+      res$test_res <- res$test$.predictions[[1]] %>%
+        dplyr::mutate(pred = .pred ^2
+                      , resid = sr - pred
+                      )
 
       # Importance plot
-      res$imp_plot <- res$fit %>%
-        extract_fit_parsnip() %>%
+      res$imp_plot <- res$test %>%
+        tune::extract_fit_parsnip() %>%
         vip::vip()
+
 
       return(res)
 
@@ -280,13 +236,31 @@
     fit <- make_and_fit_sr_model(sr_env
                                  , folds = 5
                                  , reps = 5
-                                 , tune_size = 30
+                                 , tune_size = 5
                                  , context = names(sr_data)
                                  )
 
     rio::export(fit, out_file)
 
   } else fit <- rio::import(out_file)
+
+  mod_plot <- fit$test_res %>%
+    ggplot(aes(sr
+               , pred
+               )
+           ) +
+    geom_jitter(shape = ".") +
+    geom_abline(color = "gray50", lty = 2) +
+    geom_smooth()
+
+
+  resid_plot <- fit$test_res %>%
+    ggplot(aes(sr, resid)) +
+      geom_jitter(shape = ".") +
+      geom_hline(aes(yintercept = 0), color = "gray50", lty = 2) +
+      geom_smooth()
+
+  imp_plot <- fit$imp_plot
 
 
   #------predict--------
@@ -374,5 +348,7 @@
                           , overwrite = TRUE
                           )
 
-  }
+  } else sr_bii <- terra::rast(out_file)
+
+
 
