@@ -23,12 +23,11 @@
 
   #-------packages-------
 
-  library(magrittr)
+  library(tidyverse)
+
   library(terra)
   library(envRaster)
   library(caret)
-  library(dplyr)
-  library(purrr)
   library(tmap)
   library(future)
 
@@ -82,38 +81,7 @@
     tibble::as_tibble()
 
 
-
-  #-------maps--------
-
-  # IBRA Sub
-  ibra_sub <- sf::st_read(fs::path("..","envEco", "out","shp","ibra_sub.shp")) %>%
-    sf::st_transform(crs = 4283) %>%
-    sf::st_make_valid()
-
-  # LSA
-  lsa <- sf::st_read(fs::path("..","envEco", "out","shp","lsa.shp")) %>%
-    sf::st_transform(crs = 4283) %>%
-    sf::st_make_valid()
-
-
-  #------palettes------
-
-  lulsa <- rio::import(fs::path("data", "luLSA.csv"))
-
-  # Set colours for LSAs - LSARegion
-  lsa_palette <- mapply(FUN = function(red,green,blue,alpha) rgb(red
-                                                                 , green
-                                                                 , blue
-                                                                 , alpha
-                                                                 , maxColorValue = 255
-                                                                 )
-                        , red = lulsa$Red
-                        , green = lulsa$Green
-                        , blue = lulsa$Blue
-                        , alpha = lulsa$Alpha
-                        )
-
-
-  names(lsa_palette) <- lulsa$LSA
-  lsa_pal_fill <- scale_fill_manual(name = "LSA", values = lsa_palette, drop = TRUE)
-  lsa_pal_col <- scale_colour_manual(name = "LSA", values = lsa_palette, drop = TRUE)
+  # generic data
+  xfun::in_dir(fs::path("..", "RC")
+               , source(fs::path("common", "genericData.R"))
+               )

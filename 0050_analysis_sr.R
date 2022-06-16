@@ -144,9 +144,7 @@
 
       # Models
       res$rf_mod <- rand_forest(mode = "regression") %>%
-        parsnip::set_args(mtry = tune()
-                           , trees = tune()
-                          ) %>%
+        parsnip::set_args(trees = tune()) %>%
         set_engine("randomForest")
 
       res$glm_mod <- linear_reg(mode = "regression") %>%
@@ -155,6 +153,7 @@
                           ) %>%
         parsnip::set_engine("glmnet")
 
+      # Removed as focused closely on generic patterns over local
       # res$xgb_mod <- boost_tree(mode = "regression") %>%
       #   parsnip::set_args(mtry = tune()
       #                     , trees = tune()
@@ -167,11 +166,31 @@
       #                     ) %>%
       #   parsnip::set_engine("xgboost")
 
+      # Removed as requires normalisation of predictors - too hard to build into workflow, especially for the later geospatial 'predict'
+      # res$ann_mod <- mlp(mode = "regression") %>%
+      #   parsnip::set_args(epochs = tune()
+      #                     , hidden_units = tune()
+      #                     , penalty = tune()
+      #                     ) %>%
+      #   set_mode("regression") %>%
+      #   # Also set engine-specific `verbose` argument to prevent logging the results:
+      #   set_engine("nnet", verbose = 0)
+
+
+      res$svm_mod <- svm_rbf(mode = "regression") %>%
+        parsnip::set_args(cost = tune()
+                          , rbf_sigma = tune()
+                          , margin = tune()
+                          ) %>%
+        set_engine("kernlab")
+
       # Workflow
       res$mod_wf <- workflow_set(models = list(glm = res$glm_mod
-                                                 , rf = res$rf_mod
-                                                 #, xgb = res$xgb_mod
-                                                 )
+                                               , rf = res$rf_mod
+                                               #, xgb = res$xgb_mod
+                                               #, ann = res$ann_mod
+                                               , svm = res$svm_mod
+                                               )
                                  , preproc = list(rec = res$rec)
                                  )
 
@@ -180,7 +199,6 @@
                                     , parallel_over = "everything"
                                     , save_workflow = TRUE
                                     )
-
 
 
       res$wf_results <- res$mod_wf %>%
@@ -208,18 +226,18 @@
         workflowsets::extract_workflow(res$wf_best) %>%
         tune::finalize_workflow(res$mod_best)
 
-      # Final fit
-      res$fit <- res$final_wf %>%
-        fit(data = res$original_data)
-
       # Fit final model to test data set to get final metrics
       res$test <- res$final_wf %>%
         tune::last_fit(split = res$data_split)
 
+      # How did final model to against test data?
       res$test_res <- res$test$.predictions[[1]] %>%
         dplyr::mutate(pred = .pred ^2
                       , resid = sr - pred
                       )
+
+      # Final fit - needed for predictions
+      res$fit <- res$test$.workflow[[1]]
 
       # Importance plot
       res$imp_plot <- res$test %>%
@@ -233,12 +251,21 @@
 
     # fit <- make_and_fit_sr_model(flor_env, context = names(sr_data))
 
+    cl <- parallel::makePSOCKcluster(max_cores)
+    doParallel::registerDoParallel(cl)
+
     fit <- make_and_fit_sr_model(sr_env
                                  , folds = 5
                                  , reps = 5
-                                 , tune_size = 5
+                                 , tune_size = 20
                                  , context = names(sr_data)
                                  )
+
+    parallel::stopCluster(cl)
+
+    rm(cl)
+
+    gc()
 
     rio::export(fit, out_file)
 
@@ -310,15 +337,107 @@
                )
 
 
+  #-------sr results--------
+
   sr_tifs <- purrr::map(epoch_stack$name
                         , ~terra::rast(fs::path(out_dir, paste0(., ".tif")))
                         ) %>%
     stats::setNames(paste0(epoch_stack$name))
 
 
-  sr_tifs <- purrr::map(sr_tifs
-                        , function(x) x^2
-                        )
+  # sr_tifs <- purrr::map(sr_tifs
+  #                       , function(x) x^2
+  #                       )
+
+
+  out_file <- fs::path(out_dir, "geo_sr.csv")
+
+  if(!file.exists(out_file)) {
+
+    geo_sr <- tibble(name = names(sr_tifs)
+                     , r = sr_tifs
+                     ) %>%
+      dplyr::mutate(tif_cells = purrr::map_dbl(r, terra::ncell)
+                    , sr_bii_extract = purrr::map(r
+                                                  , terra::extract
+                                                  , y = terra::vect(lsa)
+                                                  , cells = TRUE
+                                                  )
+                    ) %>%
+      tidyr::unnest(cols = sr_bii_extract) %>%
+      dplyr::left_join(lsa %>%
+                         sf::st_set_geometry(NULL) %>%
+                         dplyr::mutate(ID = dplyr::row_number()) %>%
+                         dplyr::select(ID, where(is.character))
+                       ) %>%
+      dplyr::select(-r)
+
+    rio::export(geo_sr, out_file)
+
+  } else {
+
+    geo_sr <- rio::import(out_file) %>%
+      tibble::as_tibble()
+
+  }
+
+
+  #-----sr summary--------
+
+  geo_sr_summary <- geo_sr %>%
+    dplyr::group_by(name
+                    , LSA
+                    ) %>%
+    dplyr::summarise(sr = quantile(lyr1, probs = 0.5, na.rm = TRUE) ^ 2
+                     , ci90up = quantile(lyr1, probs = 0.95, na.rm = TRUE) ^ 2
+                     , ci90lo = quantile(lyr1, probs = 0.05, na.rm = TRUE) ^ 2
+                     ) %>%
+    dplyr::ungroup() %>%
+    dplyr::left_join(luep)
+
+
+
+  ggplot(geo_sr_summary
+         , aes(epochEnd
+               , sr
+               , fill = LSA
+               , colour = LSA
+               )
+         ) +
+    geom_line() +
+    geom_ribbon(aes(ymax = ci90up, ymin = ci90lo, colour = NULL)
+                , alpha = 0.5
+                ) +
+    facet_wrap(~LSA, scales = "free_y") +
+    lsa_pal_fill +
+    lsa_pal_col
+
+
+  #-------sr rand---------
+
+  rand_cells <- geo_sr %>%
+    dplyr::distinct(LSA, cell) %>%
+    dplyr::group_by(LSA) %>%
+    dplyr::sample_n(500) %>%
+    dplyr::ungroup()
+
+  geo_sr_rand <- geo_sr %>%
+    dplyr::inner_join(rand_cells) %>%
+    dplyr::mutate(sr = lyr1 ^ 2) %>%
+    dplyr::left_join(luep)
+
+  ggplot(geo_sr_rand
+         , aes(epochEnd
+               , sr
+               , fill = LSA
+               , colour = LSA
+               , group = cell
+               )
+         ) +
+    geom_line(alpha = 0.1) +
+    facet_wrap(~LSA, scales = "free_y") +
+    lsa_pal_fill +
+    lsa_pal_col
 
 
   #-------sr bii---------

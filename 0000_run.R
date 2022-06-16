@@ -5,7 +5,7 @@
   if(!exists("run_to")) run_to <- 40
 
   # Overall settings
-  if(!exists("max_cores")) max_cores <- 6
+  if(!exists("max_cores")) max_cores <- 14
 
   if(!exists("ls_size")) ls_size <- 200
 
