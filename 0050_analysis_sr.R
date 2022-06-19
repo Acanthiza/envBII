@@ -13,6 +13,10 @@
 
   #-------env data------
 
+  sr_data <- data %>%
+    dplyr::select(toi, sr) %>%
+    tidyr::unnest(cols =)
+
   sr_points <- sr_data %>%
     sf::st_as_sf(coords = c("long", "lat")
                  , crs = 4283

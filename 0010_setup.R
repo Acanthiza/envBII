@@ -39,7 +39,9 @@
 
   #-------overall settings-------
 
-  visit_cols <- c("lat", "long", "year")
+  toi <- "class"
+
+  visit_cols <- c("lat", "long", "year", "toi")
 
   tmap::tmap_mode("view")
 
